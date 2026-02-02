@@ -36,7 +36,7 @@ union uintToInt {
 #define ADC_SS_LENGTH   1
 
 # define SWEEP_DELAY 3
-
+#define ADC_TIMEOUT_MS 10
 
 /*
  * Input MUX selection

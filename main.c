@@ -38,6 +38,10 @@ SMV_ADS1118 adc1;
 
 /* USER CODE BEGIN PV */
 static double test [4] = {0};
+static double read_one = 0;
+static uint8_t i = 0;
+static uint8_t error_flag = 0;
+static uint32_t time_diff = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,12 +73,8 @@ int main(void)
 
 	while (1)
 	{
-		/*WARNING: For consecutive multi-channel reads, use the sweep function!
-		 * If you use the single channel read function in succession, it will return the wrong channel
-		 * This is an issue we are still trying to fix, but the sweep function exists to quickly bypass the issue
-		 */
 		adc1.sweep(&adc1, test);
-		HAL_Delay(10);
+//		read_one = adc1.read(&adc1, ADC_CHANNEL_1);
 	}
 
 }
@@ -210,8 +210,10 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+  error_flag = adc1.checkFlag(&adc1);
   while (1)
   {
+	  i += 1;
   }
   /* USER CODE END Error_Handler_Debug */
 }
