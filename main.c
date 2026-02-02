@@ -65,7 +65,7 @@ int main(void)
   MX_USART2_UART_Init();
 
   adc1 = ADS_new();
-  adc1.init(&adc1, &hspi1);
+  adc1.init(&adc1, &hspi1, GPIOA, GPIO_PIN_4, GPIOA, GPIO_PIN_6);
 
 	while (1)
 	{

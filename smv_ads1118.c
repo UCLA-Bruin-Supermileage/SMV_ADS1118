@@ -2,30 +2,39 @@
 
 void Error_Handler(void); // must be provided by user
 
-static double SMV_ADS1118_Read(SMV_ADS1118 *ads, uint16_t adc_channel){
+static double SMV_ADS1118_Read(SMV_ADS1118 *ads, ADC_CHANNELS adc_channel){
 	int16_t adc_cast = 0;
 	union uintToInt spi_buf;
 
-//	ads->adc_config = ((ads->adc_config) & ADC_CHANNEL_CLEAR) | adc_channel;
+	ads->config.bits.mux = adc_channel;
+	uint16_t inputCode = ads->config.inputCode;
 
-	if (adc_channel == ADC_CHANNEL_0){
-		ads->adc_config = 0b1100001110101011;
-	}else if (adc_channel == ADC_CHANNEL_1){
-		ads->adc_config = 0b1101001110101011;
-	}else if (adc_channel == ADC_CHANNEL_2){
-		ads->adc_config = 0b1110001110101011;
-	}else if (adc_channel == ADC_CHANNEL_3){
-		ads->adc_config = 0b1111001110101011;
-	}else{
-		return -1;
-	}
 
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
-	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&(ads->adc_config), (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+  // this first Transmit tells the ADS1118 what data we want
+  // we don't care about receiving any data because it's data that was on the ADS1118 from before
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+	if (HAL_SPI_Transmit(ads->hspi, (uint16_t*)&inputCode, 1, 100)!= HAL_OK){
 		ads->error_flag = 1;
 		Error_Handler();
 	}
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+
+	uint32_t timer = HAL_GetTick();
+
+	while (HAL_GPIO_ReadPin(GPIOA, ads->drdy_pin) == GPIO_PIN_SET){
+		if (HAL_GetTick() - timer > 10){
+			ads -> error_flag = 1;
+			Error_Handler();
+		}
+	}
+
+  // Now we just retrieve data that we actually want which is waiting on the ADS118
+  	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+	if (HAL_SPI_Receive(ads->hspi, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
 
 	adc_cast = spi_buf.sgnd;
 	ads->error_flag = 0;
@@ -33,20 +42,18 @@ static double SMV_ADS1118_Read(SMV_ADS1118 *ads, uint16_t adc_channel){
 }
 
 void SMV_ADS1118_Sweep (SMV_ADS1118 *ads, double arr []){
-	arr[0] = ads -> read(ads, ADC_CHANNEL_1);
-	HAL_Delay(5);
-	arr[1] = ads -> read(ads, ADC_CHANNEL_2);
-	HAL_Delay(5);
-	arr[2] = ads -> read(ads, ADC_CHANNEL_3);
-	HAL_Delay(5);
-	arr[3] = ads -> read(ads, ADC_CHANNEL_0);
+  // reading ADC_CHANNEL_0 now returns channel 0 data
+	arr[0] = ads -> read(ads, ADC_CHANNEL_0);
+	arr[1] = ads -> read(ads, ADC_CHANNEL_1);
+	arr[2] = ads -> read(ads, ADC_CHANNEL_2);
+	arr[3] = ads -> read(ads, ADC_CHANNEL_3);
 }
 
 static uint8_t SMV_ADS1118_Check_Flag(SMV_ADS1118 *ads) {
 	return ads->error_flag;
 }
 
-static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass){
+static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass, GPIO_TypeDef *cs_port, uint16_t cs_pin,GPIO_TypeDef *drdy_port, uint16_t drdy_pin){
 	ads->hspi = hspi_pass;
 	ads->hspi->Instance = SPI1;
 	ads->hspi->Init.Mode = SPI_MODE_MASTER;
@@ -61,11 +68,27 @@ static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass){
 	ads->hspi->Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
 	ads->hspi->Init.CRCPolynomial = 10;
 
+	/* Init chip select info */
+	 ads->cs_port  = cs_port;
+	 ads->cs_pin   = cs_pin;
+	 ads->drdy_port = drdy_port;
+	 ads->drdy_pin = drdy_pin;
+
 	if (HAL_SPI_Init(ads->hspi) != HAL_OK)
 	{
 		ads->error_flag = 1;
 		Error_Handler();
 	}
+
+	/* Added in input code init to the parent init() so it starts with the desired values */
+	ads->config.inputCode = 0;      // clear first
+	ads->config.bits.reserved = 1;  // REQUIRED by datasheet
+	ads->config.bits.nop      = 0b01;
+	ads->config.bits.pullup  = 1;
+	ads->config.bits.dr      = 0b101;
+	ads->config.bits.mode    = 1;
+	ads->config.bits.start   = 1;
+	ads->config.bits.pga     = 0b001; // 4.096 V
 }
 
 /*
@@ -79,16 +102,6 @@ SMV_ADS1118 ADS_new(void) {
 		.error_flag = 0,
 		.channel_reads = {0}
 	};
-	ads.adc_config =
-		ADC_SS |
-		ADC_CHANNEL_CLEAR |
-		ADC_PGA |
-		ADC_MODE |
-		ADC_DR |
-		ADC_TS |
-		ADC_PU |
-		ADC_NOP |
-		ADC_RES;
 
 	/* function pointer definitions */
 	ads.read	 		= SMV_ADS1118_Read;
