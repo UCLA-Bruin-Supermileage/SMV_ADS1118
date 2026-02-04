@@ -2,6 +2,16 @@
 
 void Error_Handler(void); // must be provided by user
 
+static void DRDY_WAIT (SMV_ADS1118 *ads){
+	uint32_t timer = HAL_GetTick();
+
+	while (HAL_GPIO_ReadPin(ads->drdy_port, ads->drdy_pin) == GPIO_PIN_SET){
+		if (HAL_GetTick() - timer > ADC_TIMEOUT_MS){
+			ads -> error_flag = 2;
+			Error_Handler();
+		}
+	}
+}
 static double SMV_ADS1118_Read(SMV_ADS1118 *ads, ADC_CHANNELS adc_channel){
 	int16_t adc_cast = 0;
 	union uintToInt spi_buf;
@@ -18,14 +28,12 @@ static double SMV_ADS1118_Read(SMV_ADS1118 *ads, ADC_CHANNELS adc_channel){
 		Error_Handler();
 	}
 	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+  	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
 
-  // Wait 3ms to give ADS1118 time to receive the Transmit we sent and convert voltage to binary number
-	HAL_Delay(SWEEP_DELAY);
-  // Now, the data from the Transmit we sent before is waiting on the ADS1118
+	DRDY_WAIT(ads);
 
   // Now we just retrieve data that we actually want which is waiting on the ADS118
-  	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
-	if (HAL_SPI_Receive(ads->hspi, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&inputCode, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
 		ads->error_flag = 1;
 		Error_Handler();
 	}
@@ -36,23 +44,94 @@ static double SMV_ADS1118_Read(SMV_ADS1118 *ads, ADC_CHANNELS adc_channel){
 	return (double)adc_cast * ADC_FACTOR_CALC;
 }
 
+
 void SMV_ADS1118_Sweep (SMV_ADS1118 *ads, double arr []){
-  // reading ADC_CHANNEL_0 now returns channel 0 data
-	arr[0] = ads -> read(ads, ADC_CHANNEL_0);
-	HAL_Delay(SWEEP_DELAY);
-	arr[1] = ads -> read(ads, ADC_CHANNEL_1);
-	HAL_Delay(SWEEP_DELAY);
-	arr[2] = ads -> read(ads, ADC_CHANNEL_2);
-	HAL_Delay(SWEEP_DELAY);
-	arr[3] = ads -> read(ads, ADC_CHANNEL_3);
-	HAL_Delay(SWEEP_DELAY);
+	union uintToInt spi_buf;
+
+	//Send CHANNEL 0 config, read nothing
+
+	ads->config.bits.mux = ADC_CHANNEL_0;
+	uint16_t inputCode = ads->config.inputCode;
+
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+	if (HAL_SPI_Transmit(ads->hspi, (uint16_t*)&inputCode, 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+
+	DRDY_WAIT (ads);
+
+	//Send CHANNEL 1 config, read CHANNEL 0
+
+	ads->config.bits.mux = ADC_CHANNEL_1;
+	inputCode = ads->config.inputCode;
+	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&inputCode, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+
+	arr[0] = (double)spi_buf.sgnd*ADC_FACTOR_CALC;
+	ads->error_flag = 0;
+
+	DRDY_WAIT (ads);
+
+	//Send CHANNEL 2 config, read CHANNEL 1
+
+	ads->config.bits.mux = ADC_CHANNEL_2;
+	inputCode = ads->config.inputCode;
+
+	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&inputCode, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+
+	arr[1] = (double)spi_buf.sgnd*ADC_FACTOR_CALC;
+
+	DRDY_WAIT (ads);
+
+	//Send CHANNEL 3 config, read CHANNEL 2
+
+	ads->config.bits.mux = ADC_CHANNEL_3;
+	inputCode = ads->config.inputCode;
+
+	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&inputCode, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_RESET);
+
+	arr[2] = (double)spi_buf.sgnd*ADC_FACTOR_CALC;
+
+	DRDY_WAIT (ads);
+
+	//Send CHANNEL 0 config, read CHANNEL 3
+
+	ads->config.bits.mux = ADC_CHANNEL_0;
+	inputCode = ads->config.inputCode;
+
+	if (HAL_SPI_TransmitReceive(ads->hspi, (uint16_t*)&inputCode, (uint16_t*)&(spi_buf.unsgnd), 1, 100)!= HAL_OK){
+		ads->error_flag = 1;
+		Error_Handler();
+	}
+	HAL_GPIO_WritePin(ads->cs_port, ads->cs_pin, GPIO_PIN_SET);
+
+	arr[3] = (double)spi_buf.sgnd*ADC_FACTOR_CALC;
+
+
 }
 
 static uint8_t SMV_ADS1118_Check_Flag(SMV_ADS1118 *ads) {
 	return ads->error_flag;
 }
 
-static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass, GPIO_TypeDef *cs_port, uint16_t cs_pin){
+static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass, GPIO_TypeDef *cs_port, uint16_t cs_pin,GPIO_TypeDef *drdy_port, uint16_t drdy_pin){
 	ads->hspi = hspi_pass;
 	ads->hspi->Instance = SPI1;
 	ads->hspi->Init.Mode = SPI_MODE_MASTER;
@@ -61,7 +140,7 @@ static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass, 
 	ads->hspi->Init.CLKPolarity = SPI_POLARITY_LOW;
 	ads->hspi->Init.CLKPhase = SPI_PHASE_2EDGE;
 	ads->hspi->Init.NSS = SPI_NSS_SOFT;
-	ads->hspi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+	ads->hspi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
 	ads->hspi->Init.FirstBit = SPI_FIRSTBIT_MSB;
 	ads->hspi->Init.TIMode = SPI_TIMODE_DISABLE;
 	ads->hspi->Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -70,6 +149,8 @@ static void SMV_ADS1118_Setup (SMV_ADS1118 *ads, SPI_HandleTypeDef * hspi_pass, 
 	/* Init chip select info */
 	 ads->cs_port  = cs_port;
 	 ads->cs_pin   = cs_pin;
+	 ads->drdy_port = drdy_port;
+	 ads->drdy_pin = drdy_pin;
 
 	if (HAL_SPI_Init(ads->hspi) != HAL_OK)
 	{
