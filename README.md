@@ -3,16 +3,15 @@
 This is the library for the ADS1118 ADC. The datasheet for the hardware can be found [here](https://www.ti.com/lit/ds/symlink/ads1118.pdf?ts=1769260564547&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FADS1118%253Futm_source%253Dgoogle%2526utm_medium%253Dcpc%2526utm_campaign%253Dasc-dc-null-44700045345909036_prodfolderdynamic-cpc-pf-google-eu_en_int%2526utm_content%253Dprodfolddynamic%2526ds_k%253DDYNAMIC+SEARCH+ADS%2526gclsrc%253Daw.ds%2526gad_source%253D1%2526gad_campaignid%253D16902541148%2526gbraid%253D0AAAAAC068F24h4FDISrnwuqoyCjglkMbM%2526gclid%253DCj0KCQiA-NHLBhDSARIsAIhe9X2d9ZvS3jTDsYjsdTFRk6rPyzKdqPQQnRiLEOTkzQYzvE5c7r3RYJsaAvZDEALw_wcB). The ADC sends data through SPI protocol and is sent through the SPI1 instance (for this library).
 
 ## Installation
-Like with the CANbus library, your IOC file will need to be generated with the correct specifications. Pins `PA_4` through `PA_7` should be assigned to `GPIO_Output`, `SPI1_SCK`, `SPI1_MISO` and `SPI1_MOSI` in that order. The GPIO pin can be changed, however the new chip select pin will need to be passed into the init function correctly. 
+Like with the CANbus library, your IOC file will need to be generated with the correct specifications. Follow these steps:
+* Carefully select your SPI pins
+* Under Connectivity, select `SPI1` and set mode to `Full-Duplex Master`
 
-Under connectivity, select `SPI1` with the mode of `Full-Duplex Master` and `Hardware NSS Output Signal`. In parameter settings, set the data size to 16 bits and the first bit to MSB (most significant bit).
-
-This library uses the same clock configurations as the CANbus library, so refer to that. 
+This library uses the same clock configurations as the CANbus library, so refer to https://github.com/UCLA-Bruin-Supermileage/SMV_STM32_CANbus
 
 Put all .h files under `/Core/Inc`, and put `smv_ads1118.c` under `/Core/Src`. The `main.c` in this repo is just an example and does not need to be included for installation.
 
 ## Usage
-In the case you decide to use a different pin for chip select, replace the GPIO pin number in the following initialization. For any variables in all caps, replace with your own
 
 Initialize a new ADS object with:
 ```
@@ -21,24 +20,22 @@ HAL_Init();
 SystemClock_Config();
 MX_GPIO_Init();
 MX_USART2_UART_Init();
-
+...
 adc1 = ADS_new();
-adc1.init(&adc1, &hspi1, GPIOA, YOUR_GPIO_PIN_NUMBER);
+adc1.init(&adc1, &hspi1, CS_PIN_PORT, CS_PIN_NUMBER, MISO_PIN_PORT, MISO_PIN_NUMBER);
 ```
 
-Since the ADC has four channels, you have the option to either read a single one or all four. 
+The ADS1118 has four channels. Users have the option of either reading a single channel or all four. If reading multiple channels, it is advised to use the `sweep` function, as it operates much more efficiently than consecutive single-channel reads.
 
-To read a single channel (use the enumerator in the `smv_ads1118.h` to choose which one):
+#### Single-Channel Read:
+To read a single channel (use the enumerators in `smv_ads1118.h` to pass in channels):
 ```
 YOUR_DATA = adc1.read(&adc1, YOUR_ADC_CHANNEL);
-HAL_Delay(10);
 ```
 
-To read all four channels, pass in an array of at least length 4.
+#### Multichannel Read:
 ```
+double adc_read [4] = {0}
+...
 adc1.sweep(&adc1, YOUR_TEST_ARRAY);
-HAL_Delay(10);
 ```
-
-## Footnote
-In the case that `sweep` is not correctly reading all 4 channels, increase the `SWEEP_DELAY` in `smv_ads1118.h`.
